@@ -15,6 +15,7 @@ from typing import Deque, List, Tuple
 from dataclasses import dataclass
 from PyQt6.QtCore import QThreadPool, QRunnable, QObject
 from video_player import AnalyzerThread
+from agent.agent_baby_safety import get_baby_safety_answer
 
 @dataclass
 class Frame:
