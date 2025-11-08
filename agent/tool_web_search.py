@@ -1,5 +1,5 @@
 from langchain_community.utilities import GoogleSerperAPIWrapper
-from langchain.agents import Tool
+from langchain.tools import Tool
 import os
 
 os.environ["SERPER_API_KEY"] = os.getenv("SERPER_DEV_API")

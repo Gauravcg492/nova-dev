@@ -39,7 +39,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from typing import Deque, List, Tuple
-
+from agent.run_agent_pipeline import analyze_video_and_answer
 import cv2
 import imageio
 
@@ -118,24 +118,26 @@ def call_llm_on_video_segment(segment_path: str, sample_every_nth_frame: int = 1
     For providers that accept video files directly, simply stream the file
     rather than frames. This function returns a mock response string.
     """
-    cap = cv2.VideoCapture(segment_path)
-    if not cap.isOpened():
-        return "[LLM] Could not open segment for sampling."
+    # cap = cv2.VideoCapture(segment_path)
+    # if not cap.isOpened():
+    #     return "[LLM] Could not open segment for sampling."
 
-    sampled = []
-    idx = 0
-    while True:
-        ok, frame = cap.read()
-        if not ok:
-            break
-        if idx % sample_every_nth_frame == 0:
-            # JPEG encode for base64 packaging
-            okj, buf = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
-            if okj:
-                b64 = base64.b64encode(buf).decode('ascii')
-                sampled.append(b64)
-        idx += 1
-    cap.release()
+    # sampled = []
+    # idx = 0
+    # while True:
+    #     ok, frame = cap.read()
+    #     if not ok:
+    #         break
+    #     if idx % sample_every_nth_frame == 0:
+    #         # JPEG encode for base64 packaging
+    #         okj, buf = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 90])
+    #         if okj:
+    #             b64 = base64.b64encode(buf).decode('ascii')
+    #             sampled.append(b64)
+    #     idx += 1
+    # cap.release()
+    
+    result = analyze_video_and_answer(segment_path)
 
     # --- Replace this with your actual LLM call ---
     # Example (OpenAI-style pseudocode):
@@ -155,7 +157,7 @@ def call_llm_on_video_segment(segment_path: str, sample_every_nth_frame: int = 1
     # return resp.choices[0].message.content
 
     # For now, just report how many frames we sampled.
-    return f"[LLM mock] Sent {len(sampled)} sampled frames from {os.path.basename(segment_path)}"
+    return result
 
 
 # ------------------------------

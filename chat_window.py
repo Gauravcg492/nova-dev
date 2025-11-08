@@ -137,7 +137,7 @@ class VideoThread(QRunnable):
 
             # Periodic analysis
             now = time.time()
-            if now - last_analyze >= 10:
+            if now - last_analyze >= 5:
                 last_analyze = now
                 print("Submitting segment for analysis...")
                 segment_path = dump_current_buffer(buf)
