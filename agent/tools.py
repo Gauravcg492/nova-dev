@@ -1,10 +1,13 @@
 from langchain_community.utilities import GoogleSerperAPIWrapper
-load_dotenv()
+from langchain.agents import Tool
+import os
 
-def web_search_tool(query: str) -> str:
-    Tool(
-        name="Intermediate Answer",
-        func=search.run,
-        description="useful for when you need to ask with search"
-    )
-    return f"Search results for: {query}"
+os.environ["SERPER_API_KEY"] = os.getenv("SERPER_DEV_API")
+def web_search():
+    search =  GoogleSerperAPIWrapper()
+    searh_tool = Tool(
+                    name="Intermediate Answer",
+                    func=search.run,
+                    description="useful for when you need to ask with search (in internet/google)"
+                )
+    return searh_tool
