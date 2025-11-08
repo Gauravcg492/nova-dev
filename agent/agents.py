@@ -79,15 +79,8 @@ class VideoStreamProcessor:
             cv2.destroyAllWindows()
 
 
-class VisnalysisAgent:
-    """Agent 1: Analyzes video frames to detect baby safety issues"""
-    
+class VideoAnalysis:    
     def __init__(self, api_key: str):
-        """
-        Initialize Vision Analysis Agent
-        Args:
-            api_key: Anthropic API key
-        """
 
         self.llm = ChatOpenAI(
                         model="google/gemini-2.5-flash-preview-09-2025",  
@@ -115,21 +108,11 @@ class VisnalysisAgent:
         Be vigilant but not alarmist. Focus on actionable safety issues."""
 
     def analyze_frame(self, frame_base64: str, frame_number: int) -> Dict[str, Any]:
-        """
-        Analyze a video frame for baby safety issues
-        
-        Args:
-            frame_base64: Base64 encoded image
-            frame_number: Frame number for tracking
-            
-        Returns:
-            Analysis results dictionary
-        """
         message = HumanMessage(
             content=[
                 {
                     "type": "text",
-                    "text": "What is in this image, audio and video?"
+                    "text": "Analyze this frame (#{frame_number}) for baby safety issues. Focus on holding position, environment safety, and baby's well-being."
                 },
                 {
                     "type": "input_video",
@@ -139,36 +122,13 @@ class VisnalysisAgent:
                 }
             ]
         )
-        message = HumanMessage(
-            content=[
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "image/jpeg",
-                        "data": frame_base64
-                    }
-                },
-                {
-                    "type": "text",
-                    "text": f"Analyze this frame (#{frame_number}) for baby safety issues. Focus on holding position, environment safety, and baby's well-being."
-                }
-            ]
-        )
         
         response = self.llm.invoke([
             SystemMessage(content=self.system_prompt),
             message
         ])
         
-        analysis = {
-            "frame_number": frame_number,
-            "timestamp": datetime.now().isoformat(),
-            "raw_analysis": response.content,
-            "has_issue": "DETECTED_ISSUE" in response.content and "NONE" not in response.content
-        }
-        
-        return analysis
+        return response.content
 
 
 class SafetyKnowledgeBase:
