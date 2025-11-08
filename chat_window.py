@@ -13,13 +13,19 @@ from PyQt6.QtGui import QImage, QPixmap
 from frontend import Ui_MainWindow  # your .ui -> py converted file
 from typing import Deque, List, Tuple
 from dataclasses import dataclass
-from PyQt6.QtCore import QThreadPool, QRunnable
+from PyQt6.QtCore import QThreadPool, QRunnable, QObject
 from video_player import AnalyzerThread
 
 @dataclass
 class Frame:
     ts: float  # presentation timestamp (seconds)
     img: any   # numpy array (H, W, 3) BGR
+
+
+class WorkerSignals(QObject):
+    frame_ready = pyqtSignal(QtGui.QImage)
+    text_ready = pyqtSignal(str)
+
 
 
 class RollingBuffer:
@@ -77,7 +83,7 @@ def write_segment_to_mp4(frames: List[Frame], fps: float, out_path: str) -> str:
     return out_path
 
 class VideoThread(QRunnable):
-    frame_ready = pyqtSignal(QtGui.QImage)
+    # frame_ready = pyqtSignal(QtGui.QImage)
 
     def __init__(self, source, buffer_seconds=15, analyze_interval=10, window=None, parent=None):
         super().__init__()
@@ -86,6 +92,8 @@ class VideoThread(QRunnable):
         self.buffer_seconds = buffer_seconds
         self.analyze_interval = analyze_interval
         self.running = False
+        self.signals = WorkerSignals()
+
 
     def run(self):
         self.running = True
@@ -124,7 +132,7 @@ class VideoThread(QRunnable):
             h, w, ch = rgb.shape
             bytes_per_line = ch * w
             qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
-            self.frame_ready.emit(qimg)
+            self.signals.frame_ready.emit(qimg)
 
             # Periodic analysis
             now = time.time()
@@ -145,7 +153,7 @@ class VideoThread(QRunnable):
             try:
                 while True:
                     msg = results_q.get_nowait()
-                    self.window.model_repsonse_plainTextEdit.setPlainText(msg)
+                    self.signals.text_ready.emit(msg)
             except queue.Empty:
                 pass
 
@@ -176,8 +184,13 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
             self.video_thread.stop()
 
         self.video_thread = VideoThread(source, window=self)
-        self.video_thread.frame_ready.connect(self.update_frame)
+        self.video_thread.signals.frame_ready.connect(self.update_frame)
+        self.video_thread.signals.text_ready.connect(self.update_text)
         self.thread.start(self.video_thread)
+        
+    @QtCore.pyqtSlot(str)
+    def update_text(self, text):
+        self.model_repsonse_plainTextEdit.setPlainText(text)
 
     @QtCore.pyqtSlot(QtGui.QImage)
     def update_frame(self, image):
