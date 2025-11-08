@@ -49,7 +49,7 @@ class VideoAnalysis:
                 {
                     "type": "input_video",
                     "video_url": {
-                        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                        "url": f"data:video/mp4;base64,{video_base64}"
                     }
                 }
             ]
