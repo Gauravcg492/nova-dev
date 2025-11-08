@@ -172,10 +172,12 @@ class AnalyzerThread(threading.Thread):
     def run(self):
         while not self._stop_event.is_set():
             try:
+                print("Analyzer waiting for segment...")
                 segment_path = self.task_q.get(timeout=0.5)
             except queue.Empty:
                 continue
             try:
+                print(f"Analyzer processing segment: {segment_path}")
                 result = call_llm_on_video_segment(segment_path)
                 self.results_q.put(result)
             except Exception as e:
