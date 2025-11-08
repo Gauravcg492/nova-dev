@@ -1,3 +1,4 @@
+from collections import deque
 import sys
 import cv2
 import threading
@@ -10,14 +11,78 @@ from PyQt6 import QtWidgets, QtGui, QtCore
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 from frontend import Ui_MainWindow  # your .ui -> py converted file
+from typing import Deque, List, Tuple
+from dataclasses import dataclass
+from PyQt6.QtCore import QThreadPool, QRunnable
+from video_player import AnalyzerThread
+
+@dataclass
+class Frame:
+    ts: float  # presentation timestamp (seconds)
+    img: any   # numpy array (H, W, 3) BGR
 
 
-class VideoThread(QThread):
+class RollingBuffer:
+    def __init__(self, seconds: int, fps: float):
+        self.seconds = max(1, int(seconds))
+        self.fps = fps if fps and fps > 0 else 30.0
+        self.maxlen = int(self.seconds * self.fps)
+        self._dq: Deque[Frame] = deque(maxlen=self.maxlen)
+        self._lock = threading.Lock()
+
+    def update_fps(self, fps: float):
+        if fps and fps > 0 and abs(fps - self.fps) > 1e-3:
+            with self._lock:
+                self.fps = fps
+                self.maxlen = int(self.seconds * self.fps)
+                old = list(self._dq)
+                self._dq = deque(old[-self.maxlen:], maxlen=self.maxlen)
+
+    def push(self, frame: Frame):
+        with self._lock:
+            self._dq.append(frame)
+
+    def snapshot(self) -> Tuple[List[Frame], float]:
+        with self._lock:
+            frames = list(self._dq)
+            fps = self.fps
+        return frames, fps
+
+def dump_current_buffer(buf: RollingBuffer) -> str:
+    frames, fps = buf.snapshot()
+    if not frames:
+        return ""
+    tmpdir = tempfile.mkdtemp(prefix="vidseg_")
+    out_path = os.path.join(tmpdir, "segment.mp4")
+    try:
+        write_segment_to_mp4(frames, fps, out_path)
+        return out_path
+    except Exception as e:
+        print(f"Failed to write segment: {e}")
+        return ""
+
+
+def write_segment_to_mp4(frames: List[Frame], fps: float, out_path: str) -> str:
+    if not frames:
+        raise ValueError("No frames to write")
+    h, w = frames[0].img.shape[:2]
+    writer = imageio.get_writer(out_path, fps=fps, codec="libx264", quality=7)
+    try:
+        for fr in frames:
+            # Convert BGR (OpenCV) -> RGB (imageio expects RGB)
+            rgb = cv2.cvtColor(fr.img, cv2.COLOR_BGR2RGB)
+            writer.append_data(rgb)
+    finally:
+        writer.close()
+    return out_path
+
+class VideoThread(QRunnable):
     frame_ready = pyqtSignal(QtGui.QImage)
 
-    def __init__(self, source, buffer_seconds=15, analyze_interval=10, parent=None):
-        super().__init__(parent)
+    def __init__(self, source, buffer_seconds=15, analyze_interval=10, window=None, parent=None):
+        super().__init__()
         self.source = source
+        self.window = window
         self.buffer_seconds = buffer_seconds
         self.analyze_interval = analyze_interval
         self.running = False
@@ -33,13 +98,27 @@ class VideoThread(QThread):
         if not fps or fps <= 0:
             fps = 30.0
         frame_delay = 1.0 / fps
+        buf = RollingBuffer(seconds=4, fps=fps)
+        # Queues for analysis work
+        task_q: "queue.Queue[str]" = queue.Queue()
+        results_q: "queue.Queue[str]" = queue.Queue()
+        analyzer = AnalyzerThread(task_q, results_q)
+        analyzer.start()
+
+        # Timing for periodic analysis
+        last_analyze = time.time()
+
+        # Timing for playback speed control
+        frame_delay = 1.0 / fps  # seconds per frame
 
         last_time = time.time()
         while self.running:
             ok, frame = cap.read()
             if not ok:
                 break
-
+            
+            ts = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+            buf.push(Frame(ts=ts, img=frame))
             # Convert BGR → RGB
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb.shape
@@ -47,11 +126,28 @@ class VideoThread(QThread):
             qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
             self.frame_ready.emit(qimg)
 
+            # Periodic analysis
+            now = time.time()
+            if now - last_analyze >= 10:
+                last_analyze = now
+                print("Submitting segment for analysis...")
+                segment_path = dump_current_buffer(buf)
+                if segment_path:
+                    task_q.put(segment_path)
+
             # Sleep to maintain playback rate
             elapsed = time.time() - last_time
             sleep_time = max(0, frame_delay - elapsed)
             time.sleep(sleep_time)
             last_time = time.time()
+
+            # Drain any analyzer results without blocking
+            try:
+                while True:
+                    msg = results_q.get_nowait()
+                    self.window.model_repsonse_plainTextEdit.setPlainText(msg)
+            except queue.Empty:
+                pass
 
         cap.release()
 
@@ -66,20 +162,22 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.setupUi(self)
         self.video_thread = None
 
+        self.thread = QThreadPool()
+
         # Directly load test.mp4 from the same folder
-        video_path = os.path.join(os.path.dirname(__file__), "test.mp4")
+        video_path = os.path.join(os.path.dirname(__file__), "craddling.mp4")
         if os.path.exists(video_path):
             self.start_video(video_path)
         else:
-            print("❌ test.mp4 not found in current directory.")
+            print("❌ craddling.mp4 not found in current directory.")
 
     def start_video(self, source):
         if self.video_thread:
             self.video_thread.stop()
 
-        self.video_thread = VideoThread(source)
+        self.video_thread = VideoThread(source, window=self)
         self.video_thread.frame_ready.connect(self.update_frame)
-        self.video_thread.start()
+        self.thread.start(self.video_thread)
 
     @QtCore.pyqtSlot(QtGui.QImage)
     def update_frame(self, image):
