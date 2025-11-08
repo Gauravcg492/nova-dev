@@ -167,10 +167,10 @@ class AnalyzerThread(threading.Thread):
         super().__init__(daemon=True)
         self.task_q = task_q
         self.results_q = results_q
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
 
     def run(self):
-        while not self._stop.is_set():
+        while not self._stop_event.is_set():
             try:
                 segment_path = self.task_q.get(timeout=0.5)
             except queue.Empty:
@@ -188,7 +188,7 @@ class AnalyzerThread(threading.Thread):
                     pass
 
     def stop(self):
-        self._stop.set()
+        self._stop_event.set()
 
 
 # ------------------------------
@@ -217,6 +217,10 @@ def player(source: str, buffer_seconds: int, analyze_interval: int):
     # Timing for periodic analysis
     last_analyze = time.time()
 
+    # Timing for playback speed control
+    frame_delay = 1.0 / fps  # seconds per frame
+    last_frame_time = time.time()
+
     # Graceful Ctrl+C handling
     stopping = False
 
@@ -238,17 +242,25 @@ def player(source: str, buffer_seconds: int, analyze_interval: int):
             else:
                 break
 
-        # If FPS changes mid-stream, update buffer
+        # If FPS changes mid-stream, update buffer and frame delay
         curr_fps = cap.get(cv2.CAP_PROP_FPS)
         if curr_fps and curr_fps > 0:
             buf.update_fps(curr_fps)
+            frame_delay = 1.0 / curr_fps
 
         ts = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
         buf.push(Frame(ts=ts, img=frame))
 
         # Show frame
         cv2.imshow(window_name, frame)
-        key = cv2.waitKey(1) & 0xFF
+
+        # Calculate appropriate wait time to maintain playback speed
+        elapsed = time.time() - last_frame_time
+        wait_time = max(1, int((frame_delay - elapsed) * 1000))  # convert to milliseconds, min 1ms
+
+        key = cv2.waitKey(wait_time) & 0xFF
+        last_frame_time = time.time()
+
         if key == ord('q'):
             break
         elif key == ord('a'):
